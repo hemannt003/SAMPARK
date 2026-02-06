@@ -1,0 +1,172 @@
+{
+  "SamparkSchemes": [
+    {
+      "PutRequest": {
+        "Item": {
+          "scheme_id": {"S": "PM_KISAN"},
+          "category": {"S": "farmer"},
+          "name": {"S": "PM Kisan Samman Nidhi"},
+          "name_hi": {"S": "पीएम किसान सम्मान निधि"},
+          "eligibility": {"S": "Chhote aur seemant kisan jo 2 hectare se kam zameen rakhte hain"},
+          "benefit": {"S": "₹6000 har saal, 3 kisht mein ₹2000"},
+          "documents": {"L": [
+            {"S": "Aadhaar Card"},
+            {"S": "Bank Account"},
+            {"S": "Zameen ke Kagaz (Land Record)"},
+            {"S": "Mobile Number"}
+          ]},
+          "steps": {"L": [
+            {"S": "PM Kisan website (pmkisan.gov.in) par jao"},
+            {"S": "New Farmer Registration par click karo"},
+            {"S": "Apna Aadhaar number daalo"},
+            {"S": "Bank details bharo"},
+            {"S": "Zameen ki jaankari do"},
+            {"S": "Submit karo aur receipt print karo"}
+          ]},
+          "website": {"S": "https://pmkisan.gov.in"},
+          "helpline": {"S": "155261"}
+        }
+      }
+    },
+    {
+      "PutRequest": {
+        "Item": {
+          "scheme_id": {"S": "PM_VIDYALAKSHMI"},
+          "category": {"S": "student"},
+          "name": {"S": "PM Vidyalakshmi Yojana"},
+          "name_hi": {"S": "पीएम विद्यालक्ष्मी योजना"},
+          "eligibility": {"S": "Jo students higher education ke liye loan chahte hain, kisi bhi college mein admission ho"},
+          "benefit": {"S": "Education loan easy process se, kam interest rate, 10 lakh tak loan"},
+          "documents": {"L": [
+            {"S": "Aadhaar Card"},
+            {"S": "Admission Letter"},
+            {"S": "10th aur 12th Marksheet"},
+            {"S": "Family Income Proof"},
+            {"S": "Bank Account"},
+            {"S": "Passport Photo"}
+          ]},
+          "steps": {"L": [
+            {"S": "Vidyalakshmi Portal (vidyalakshmi.co.in) par jao"},
+            {"S": "Register karo email aur phone se"},
+            {"S": "College aur course select karo"},
+            {"S": "Loan amount daalo"},
+            {"S": "Documents upload karo"},
+            {"S": "Bank chunke apply karo"}
+          ]},
+          "website": {"S": "https://www.vidyalakshmi.co.in"},
+          "helpline": {"S": "1800-180-1111"}
+        }
+      }
+    },
+    {
+      "PutRequest": {
+        "Item": {
+          "scheme_id": {"S": "PM_UJJWALA"},
+          "category": {"S": "woman"},
+          "name": {"S": "Pradhan Mantri Ujjwala Yojana"},
+          "name_hi": {"S": "प्रधानमंत्री उज्ज्वला योजना"},
+          "eligibility": {"S": "BPL parivar ki mahilayen, 18 saal se upar, pehle se gas connection na ho"},
+          "benefit": {"S": "Free LPG connection, ₹1600 ki subsidy, pehli cylinder free"},
+          "documents": {"L": [
+            {"S": "Aadhaar Card"},
+            {"S": "BPL Ration Card"},
+            {"S": "Bank Account Passbook"},
+            {"S": "Passport Size Photo"}
+          ]},
+          "steps": {"L": [
+            {"S": "Nazdeeki LPG distributor ke paas jao"},
+            {"S": "Ujjwala form mangke bharo"},
+            {"S": "Documents ki photocopy attach karo"},
+            {"S": "KYC verification complete karo"},
+            {"S": "7-10 din mein connection mil jayega"}
+          ]},
+          "website": {"S": "https://www.pmuy.gov.in"},
+          "helpline": {"S": "1800-266-6696"}
+        }
+      }
+    },
+    {
+      "PutRequest": {
+        "Item": {
+          "scheme_id": {"S": "SUKANYA_SAMRIDDHI"},
+          "category": {"S": "woman"},
+          "name": {"S": "Sukanya Samriddhi Yojana"},
+          "name_hi": {"S": "सुकन्या समृद्धि योजना"},
+          "eligibility": {"S": "Beti ki umar 10 saal se kam ho, ek parivar mein 2 beti tak"},
+          "benefit": {"S": "8% interest rate, tax free, beti ki padhai aur shaadi ke liye"},
+          "documents": {"L": [
+            {"S": "Beti ka Birth Certificate"},
+            {"S": "Parent ka Aadhaar Card"},
+            {"S": "Address Proof"},
+            {"S": "Photo"}
+          ]},
+          "steps": {"L": [
+            {"S": "Nazdeeki Post Office ya Bank jao"},
+            {"S": "Sukanya Samriddhi form bharo"},
+            {"S": "Documents attach karo"},
+            {"S": "Minimum ₹250 deposit karo"},
+            {"S": "Passbook mil jayegi"}
+          ]},
+          "website": {"S": "https://www.indiapost.gov.in"},
+          "helpline": {"S": "1800-180-4304"}
+        }
+      }
+    },
+    {
+      "PutRequest": {
+        "Item": {
+          "scheme_id": {"S": "KISAN_CREDIT_CARD"},
+          "category": {"S": "farmer"},
+          "name": {"S": "Kisan Credit Card"},
+          "name_hi": {"S": "किसान क्रेडिट कार्ड"},
+          "eligibility": {"S": "Koi bhi kisan jo kheti karta ho, apni ya kiraye ki zameen par"},
+          "benefit": {"S": "3 lakh tak loan, 4% interest, fasal ke liye paisa turant"},
+          "documents": {"L": [
+            {"S": "Aadhaar Card"},
+            {"S": "Zameen ke Kagaz"},
+            {"S": "Passport Photo"},
+            {"S": "Bank Account"}
+          ]},
+          "steps": {"L": [
+            {"S": "Bank ya PM Kisan portal par jao"},
+            {"S": "KCC form download aur bharo"},
+            {"S": "Documents submit karo"},
+            {"S": "Bank verification hoga"},
+            {"S": "Card 15 din mein mil jayega"}
+          ]},
+          "website": {"S": "https://pmkisan.gov.in"},
+          "helpline": {"S": "155261"}
+        }
+      }
+    },
+    {
+      "PutRequest": {
+        "Item": {
+          "scheme_id": {"S": "NATIONAL_SCHOLARSHIP"},
+          "category": {"S": "student"},
+          "name": {"S": "National Scholarship Portal"},
+          "name_hi": {"S": "राष्ट्रीय छात्रवृत्ति पोर्टल"},
+          "eligibility": {"S": "School ya college mein padh rahe students, family income 2.5 lakh se kam"},
+          "benefit": {"S": "₹5000 se ₹20000 tak scholarship, fees reimbursement"},
+          "documents": {"L": [
+            {"S": "Aadhaar Card"},
+            {"S": "Income Certificate"},
+            {"S": "Caste Certificate (if applicable)"},
+            {"S": "Previous Marksheet"},
+            {"S": "Bank Account"},
+            {"S": "Bonafide Certificate"}
+          ]},
+          "steps": {"L": [
+            {"S": "NSP Portal (scholarships.gov.in) par jao"},
+            {"S": "New Registration karo"},
+            {"S": "Scholarship scheme select karo"},
+            {"S": "Form bharo aur documents upload karo"},
+            {"S": "Institute verification ke liye submit karo"}
+          ]},
+          "website": {"S": "https://scholarships.gov.in"},
+          "helpline": {"S": "0120-6619540"}
+        }
+      }
+    }
+  ]
+}

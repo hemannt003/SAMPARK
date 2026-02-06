@@ -1,0 +1,19 @@
+{
+  "name": "sampark-ai-backend",
+  "version": "1.0.0",
+  "description": "Sampark AI Lambda Backend with AWS Services",
+  "main": "index.js",
+  "scripts": {
+    "deploy": "zip -r function.zip . && aws lambda update-function-code --function-name sampark-ai --zip-file fileb://function.zip",
+    "test": "node test.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-runtime": "^3.400.0",
+    "@aws-sdk/client-dynamodb": "^3.400.0",
+    "@aws-sdk/client-polly": "^3.400.0",
+    "@aws-sdk/client-s3": "^3.400.0",
+    "@aws-sdk/client-transcribe": "^3.400.0",
+    "@aws-sdk/lib-dynamodb": "^3.400.0",
+    "@aws-sdk/s3-request-presigner": "^3.400.0"
+  }
+}
