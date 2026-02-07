@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: 'Noto Sans Devanagari', -apple-system, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: transparent;
+    padding: 8px;
+  }
+
+  /* ── Status banner ──────────────────────────────────────── */
+  .banner {
+    width: 100%;
+    padding: 12px 16px;
+    border-radius: 12px;
+    text-align: center;
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+  .banner.idle {
+    background: #E3F2FD;
+    color: #1565C0;
+    border: 2px solid #90CAF9;
+  }
+  .banner.sharing {
+    background: #E8F5E9;
+    color: #2E7D32;
+    border: 2px solid #66BB6A;
+    animation: pulse-border 2s infinite;
+  }
+  .banner.error {
+    background: #FFEBEE;
+    color: #C62828;
+    border: 2px solid #EF9A9A;
+  }
+  @keyframes pulse-border {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(76,175,80,0.3); }
+    50%      { box-shadow: 0 0 0 8px rgba(76,175,80,0); }
+  }
+
+  /* ── Video preview ──────────────────────────────────────── */
+  .preview-area {
+    width: 100%;
+    max-width: 480px;
+    aspect-ratio: 16/9;
+    background: #111;
+    border-radius: 12px;
+    overflow: hidden;
+    display: none;
+    margin-bottom: 10px;
+    position: relative;
+  }
+  .preview-area.visible { display: block; }
+  .preview-area video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+  .preview-label {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    background: rgba(0,0,0,0.6);
+    color: #4CAF50;
+    padding: 3px 10px;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+  .preview-label::before {
+    content: "●";
+    margin-right: 4px;
+    animation: blink-dot 1s infinite;
+  }
+  @keyframes blink-dot {
+    0%,100% { opacity: 1; }
+    50%     { opacity: 0.2; }
+  }
+
+  /* ── Buttons ────────────────────────────────────────────── */
+  .btn-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 6px;
+  }
+  .btn {
+    padding: 12px 24px;
+    border-radius: 12px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s;
+  }
+  .btn:active { transform: scale(0.96); }
+  .btn-share {
+    background: #2E7D32;
+    color: white;
+    box-shadow: 0 3px 12px rgba(46,125,50,0.3);
+  }
+  .btn-stop {
+    background: #D32F2F;
+    color: white;
+    box-shadow: 0 3px 12px rgba(211,47,47,0.3);
+  }
+  .btn-capture {
+    background: #1565C0;
+    color: white;
+    box-shadow: 0 3px 12px rgba(21,101,192,0.3);
+  }
+  .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  .info-text {
+    font-size: 0.85rem;
+    color: #888;
+    text-align: center;
+    margin-top: 4px;
+  }
+
+  /* Hidden canvas for frame capture */
+  #captureCanvas { display: none; }
+</style>
+</head>
+<body>
+
+<div class="banner idle" id="banner"></div>
+
+<div class="preview-area" id="previewArea">
+  <div class="preview-label" id="previewLabel">LIVE</div>
+  <video id="screenVideo" autoplay playsinline muted></video>
+</div>
+
+<div class="btn-row" id="btnRow">
+  <button class="btn btn-share" id="shareBtn"></button>
+  <button class="btn btn-stop"  id="stopBtn" style="display:none;"></button>
+  <button class="btn btn-capture" id="captureBtn" style="display:none;"></button>
+</div>
+
+<div class="info-text" id="infoText"></div>
+
+<canvas id="captureCanvas"></canvas>
+
+<script>
+// ── Streamlit communication ────────────────────────────────────
+function sendToStreamlit(type, data) {
+  window.parent.postMessage({
+    isStreamlitMessage: true,
+    type: type,
+    ...data
+  }, "*");
+}
+function setComponentValue(value) {
+  sendToStreamlit("streamlit:setComponentValue", { value: value });
+}
+function setFrameHeight(h) {
+  sendToStreamlit("streamlit:setFrameHeight", { height: h });
+}
+
+// ── Args from Streamlit ────────────────────────────────────────
+let currentLang = "hi";
+let autoCapture = true;         // auto-capture frames
+let captureIntervalSec = 8;     // seconds between auto-captures
+let captureIntervalId = null;
+
+window.addEventListener("message", (e) => {
+  if (e.data && e.data.type === "streamlit:render") {
+    const args = e.data.args || {};
+    currentLang   = args.lang || "hi";
+    autoCapture   = args.auto_capture !== false;
+    captureIntervalSec = args.capture_interval || 8;
+
+    // If Streamlit says stop, tear down
+    if (args.command === "stop") {
+      stopSharing();
+    }
+    updateLabels();
+  }
+});
+
+// ── Translations ───────────────────────────────────────────────
+const L = {
+  hi: {
+    bannerIdle:     "स्क्रीन शेयर करने के लिए नीचे बटन दबाएँ",
+    bannerSharing:  "🟢 स्क्रीन शेयर चालू है — मैं देख रहा हूँ",
+    bannerError:    "स्क्रीन शेयर में गड़बड़ — कृपया दोबारा कोशिश करें",
+    shareBtn:       "🖥️ स्क्रीन दिखाएँ",
+    stopBtn:        "🔴 बंद करें",
+    captureBtn:     "📸 स्क्रीनशॉट भेजें",
+    info:           "हर कुछ सेकंड में स्क्रीन स्वचालित रूप से विश्लेषित होगी",
+    notSupported:   "आपका ब्राउज़र स्क्रीन शेयरिंग का समर्थन नहीं करता",
+  },
+  en: {
+    bannerIdle:     "Press the button below to share your screen",
+    bannerSharing:  "🟢 Screen sharing active — I can see your screen",
+    bannerError:    "Screen sharing error — please try again",
+    shareBtn:       "🖥️ Share Screen",
+    stopBtn:        "🔴 Stop Sharing",
+    captureBtn:     "📸 Send Screenshot",
+    info:           "Your screen will be analyzed automatically every few seconds",
+    notSupported:   "Your browser does not support screen sharing",
+  }
+};
+
+function tx(key) {
+  return (L[currentLang] || L["hi"])[key] || key;
+}
+
+// ── DOM refs ───────────────────────────────────────────────────
+const banner     = document.getElementById("banner");
+const previewArea= document.getElementById("previewArea");
+const video      = document.getElementById("screenVideo");
+const shareBtn   = document.getElementById("shareBtn");
+const stopBtn    = document.getElementById("stopBtn");
+const captureBtn = document.getElementById("captureBtn");
+const infoText   = document.getElementById("infoText");
+const canvas     = document.getElementById("captureCanvas");
+
+let stream = null;
+let isSharing = false;
+
+function updateLabels() {
+  if (!isSharing) {
+    banner.textContent = tx("bannerIdle");
+    banner.className = "banner idle";
+    shareBtn.textContent = tx("shareBtn");
+    infoText.textContent = "";
+  } else {
+    banner.textContent = tx("bannerSharing");
+    banner.className = "banner sharing";
+    stopBtn.textContent = tx("stopBtn");
+    captureBtn.textContent = tx("captureBtn");
+    infoText.textContent = tx("info");
+  }
+}
+
+// ── Start sharing ──────────────────────────────────────────────
+shareBtn.addEventListener("click", async () => {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+    banner.textContent = tx("notSupported");
+    banner.className = "banner error";
+    return;
+  }
+
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: {
+        cursor: "always",
+        preferCurrentTab: true,
+      },
+      audio: false
+    });
+
+    video.srcObject = stream;
+    isSharing = true;
+
+    // UI update
+    shareBtn.style.display = "none";
+    stopBtn.style.display = "inline-block";
+    captureBtn.style.display = "inline-block";
+    previewArea.classList.add("visible");
+    updateLabels();
+    setFrameHeight(420);
+
+    // Handle user stopping via browser UI
+    stream.getVideoTracks()[0].addEventListener("ended", () => {
+      stopSharing();
+    });
+
+    // Start auto-capture
+    if (autoCapture) {
+      // Capture first frame after 2 seconds (let stream stabilize)
+      setTimeout(() => captureAndSend(), 2000);
+      captureIntervalId = setInterval(() => captureAndSend(), captureIntervalSec * 1000);
+    }
+
+    // Notify Streamlit that sharing started
+    setComponentValue(JSON.stringify({ event: "started" }));
+
+  } catch (err) {
+    console.error("Screen share error:", err);
+    banner.textContent = tx("bannerError");
+    banner.className = "banner error";
+
+    // Notify Streamlit of denial/error
+    setComponentValue(JSON.stringify({ event: "error", message: err.message }));
+  }
+});
+
+// ── Stop sharing ───────────────────────────────────────────────
+stopBtn.addEventListener("click", () => stopSharing());
+
+function stopSharing() {
+  if (stream) {
+    stream.getTracks().forEach(t => t.stop());
+    stream = null;
+  }
+  video.srcObject = null;
+  isSharing = false;
+
+  if (captureIntervalId) {
+    clearInterval(captureIntervalId);
+    captureIntervalId = null;
+  }
+
+  // UI reset
+  shareBtn.style.display = "inline-block";
+  stopBtn.style.display = "none";
+  captureBtn.style.display = "none";
+  previewArea.classList.remove("visible");
+  updateLabels();
+  setFrameHeight(120);
+
+  // Notify Streamlit
+  setComponentValue(JSON.stringify({ event: "stopped" }));
+}
+
+// ── Manual capture button ──────────────────────────────────────
+captureBtn.addEventListener("click", () => captureAndSend());
+
+// ── Capture frame + send ───────────────────────────────────────
+function captureAndSend() {
+  if (!isSharing || !video.videoWidth) return;
+
+  // Scale down for efficiency (max 1280 wide)
+  const scale = Math.min(1, 1280 / video.videoWidth);
+  canvas.width  = video.videoWidth  * scale;
+  canvas.height = video.videoHeight * scale;
+
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+  const jpegBase64 = canvas.toDataURL("image/jpeg", 0.7).split(",")[1];
+  setComponentValue(JSON.stringify({
+    event: "frame",
+    image: jpegBase64,
+    width: canvas.width,
+    height: canvas.height,
+    timestamp: Date.now(),
+  }));
+}
+
+// ── Init ───────────────────────────────────────────────────────
+updateLabels();
+sendToStreamlit("streamlit:componentReady", { apiVersion: 1 });
+setFrameHeight(120);
+</script>
+</body>
+</html>
