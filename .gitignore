@@ -30,5 +30,10 @@ npm-debug.log*
 # Testing
 coverage/
 
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
 # AWS
 samconfig.toml
