@@ -1,351 +1,293 @@
-# 🎤 Sampark AI - Voice-First Government Scheme Assistant
+# Sampark AI — Voice-First Government Scheme Assistant
 
-> **"सरकारी योजना की जानकारी आपकी भाषा में"**  
-> Empowering illiterate and semi-literate Indian citizens to access government schemes through voice
+> **सरकारी योजनाओं की जानकारी — बस बोलिए!**
+> Government scheme information — just speak!
 
-![Sampark AI](https://img.shields.io/badge/AI%20for%20Bharat-Hackathon-orange)
-![AWS](https://img.shields.io/badge/AWS-Powered-yellow)
-![Hindi](https://img.shields.io/badge/Language-Hindi%2FHinglish-blue)
+A production-grade, voice-first web application that helps farmers, students, and women in rural India access government schemes, file grievances, and navigate official websites — all through simple voice commands in Hindi or English.
 
----
-
-## 🎯 Problem Statement
-
-Over 300 million Indians cannot read or write. They are excluded from accessing government schemes due to:
-- Complex websites requiring reading and typing
-- Forms in English or formal Hindi
-- Multi-step navigation processes
-- No voice-based alternatives
-
-## 💡 Solution: Sampark AI
-
-A **voice-first AI assistant** that:
-- Uses voice as the primary interface (tap and speak)
-- Explains schemes in simple Hinglish
-- Provides audio guidance at every step
-- Works on basic smartphones
-- Requires zero typing or reading
+**Special focus: Madhya Pradesh schemes** (Ladli Bahna, Mukhyamantri Kisan Kalyan, Medhavi Vidyarthi, CM Helpline 181).
 
 ---
 
-## 📱 App Screenshots
-
-### Screen 1: Voice Input
-- Big 🎤 button
-- Auto-plays: "Namaste! Mic dabaiye aur boliye"
-- Tap to speak your query
-
-### Screen 2: Category Selection  
-- 👨‍🌾 Kisan (Farmer)
-- 🎓 Student (Vidyarthi)
-- 👩 Mahila (Woman)
-
-### Screen 3: Scheme Result
-- Scheme name with 🔊 Play button
-- Eligibility, Benefits, Documents, Steps
-- "Nearest Help Center" button
-
----
-
-## 🏗️ Architecture
+## Architecture
 
 ```
-┌─────────────────┐     ┌──────────────────┐     ┌─────────────────┐
-│   React App     │────▶│   API Gateway    │────▶│     Lambda      │
-│   (S3 Hosted)   │     │                  │     │                 │
-└─────────────────┘     └──────────────────┘     └────────┬────────┘
-                                                          │
-                    ┌─────────────────────────────────────┼─────────────────────────────────────┐
-                    │                                     │                                     │
-              ┌─────▼─────┐                        ┌──────▼──────┐                       ┌──────▼──────┐
-              │ Transcribe │                        │   Bedrock   │                       │    Polly    │
-              │ (Hindi STT)│                        │  (Claude)   │                       │ (Hindi TTS) │
-              └───────────┘                        └─────────────┘                       └─────────────┘
-                                                          │
-                                                   ┌──────▼──────┐
-                                                   │  DynamoDB   │
-                                                   │  (Schemes)  │
-                                                   └─────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                        BROWSER (Mobile/Desktop)                     │
+│                                                                     │
+│  ┌──────────────┐  ┌──────────────┐  ┌────────────────────────┐    │
+│  │  Mic Button   │  │ Text Input   │  │  Screen Share           │    │
+│  │ (JS Component)│  │ (Streamlit)  │  │  (getDisplayMedia JS)   │    │
+│  └──────┬───────┘  └──────┬───────┘  └──────────┬─────────────┘    │
+│         │ audio b64        │ text                 │ JPEG frames     │
+└─────────┼──────────────────┼──────────────────────┼─────────────────┘
+          │                  │                      │
+          ▼                  ▼                      ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                    STREAMLIT FRONTEND (app.py)                       │
+│  • WhatsApp-style chat  • Hindi/English toggle  • PWA support       │
+│  • Audio playback       • Screen guide UI       • gTTS fallback     │
+└──────────────────────────────┬──────────────────────────────────────┘
+                               │ HTTP / WebSocket
+                               ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                    FASTAPI BACKEND (main.py)                        │
+│                                                                     │
+│  POST /api/voice/transcribe  ──→  Bhashini STT → Whisper fallback  │
+│  POST /api/voice/synthesize  ──→  Bhashini TTS → gTTS fallback     │
+│  POST /api/chat/query        ──→  AI Engine + RAG                   │
+│  POST /api/screen/analyze    ──→  Vision AI (GPT-4o/Grok/Gemini)   │
+│  WS   /ws/screen/{session}   ──→  Real-time screen guidance         │
+│  GET  /api/schemes/search    ──→  FAISS semantic search             │
+│  POST /api/auth/*            ──→  JWT auth (optional)               │
+│                                                                     │
+│  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌──────────────┐ │
+│  │ AI Engine   │  │   RAG      │  │  Voice     │  │  Screen      │ │
+│  │ xAI/OpenAI/ │  │  FAISS +   │  │  Bhashini  │  │  Analyzer    │ │
+│  │ Gemini      │  │  LangChain │  │  + Whisper  │  │  (Vision AI) │ │
+│  └────────────┘  └────────────┘  └────────────┘  └──────────────┘ │
+│                                                                     │
+│  ┌────────────────────────────────────────────────────────────────┐ │
+│  │  SQLite/PostgreSQL — Users, Query Logs, Scheme Bookmarks       │ │
+│  └────────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────┘
 ```
-
-### AWS Services Used
-
-| Service | Purpose |
-|---------|---------|
-| **Amazon S3** | Frontend hosting + Audio storage |
-| **Amazon API Gateway** | REST API endpoints |
-| **AWS Lambda** | Backend logic |
-| **Amazon DynamoDB** | Scheme data storage |
-| **Amazon Transcribe** | Hindi voice to text |
-| **Amazon Polly** | Hindi text to speech |
-| **Amazon Bedrock** | AI explanations (Claude) |
 
 ---
 
-## 🚀 Quick Start
+## Features
+
+### Core
+- **Voice-first UI** — large mic button, tap and speak in Hindi or English
+- **AI-powered responses** — understands queries about schemes, eligibility, complaints
+- **Audio responses** — every answer is spoken aloud (Hindi-preferred)
+- **WhatsApp-style chat** — scrollable history with audio playback
+- **Language toggle** — pure Hindi (Devanagari) or pure English, no Hinglish
+
+### Screen-Guided Assistance
+- After multi-step answers, the app offers: *"Shall I guide you by seeing your screen?"*
+- Uses `getDisplayMedia` API to capture the user's screen
+- AI vision model (GPT-4o / Grok Vision / Gemini) analyzes screenshots
+- Speaks guidance like: *"Press the green 'Apply Now' button on the top-right"*
+- WebSocket support for real-time low-latency guidance
+- Auto-timeout after 5 minutes, encrypted streams
+
+### AI & Data
+- **Multi-provider**: xAI Grok (primary), OpenAI GPT-4o, Google Gemini
+- **RAG**: FAISS vector store with 9+ scheme documents for semantic search
+- **Bhashini API**: Indian govt STT/TTS supporting 22+ languages
+- **Fallback chain**: Bhashini → Whisper → Web Speech API (offline)
+- **Ethical AI**: Always cites sources, adds disclaimers, no legal advice
+
+### Infrastructure
+- **FastAPI + Streamlit** hybrid architecture
+- **Docker** containerized with `docker-compose.yml`
+- **SQLite** (dev) / **PostgreSQL** (prod) via async SQLAlchemy
+- **PWA** installable on mobile with offline shell caching
+- **JWT auth** (optional) for personalized tracking
+- **Structured logging** via structlog
+
+---
+
+## Quick Start
 
 ### Prerequisites
+- Python 3.11+
+- At least one API key: OpenAI, xAI (Grok), or Google Gemini
 
-- Node.js 18+
-- AWS CLI configured
-- AWS SAM CLI
-- AWS Account with Bedrock access
-
-### Local Development
+### 1. Clone and setup
 
 ```bash
-# 1. Clone and enter project
-cd Sampark
-
-# 2. Install frontend dependencies
-cd frontend
-npm install
-
-# 3. Start development server
-npm run dev
+git clone https://github.com/hemannt003/SAMPARK.git
+cd SAMPARK
+cp .env.example .env
+# Edit .env with your API key(s)
 ```
 
-Open http://localhost:3000 in your browser.
-
-> **Note**: The app works in demo mode without AWS backend. Voice recognition uses browser's Web Speech API.
-
-### AWS Deployment
+### 2. Install dependencies
 
 ```bash
-# 1. Install SAM CLI
-# macOS: brew install aws-sam-cli
-# Others: https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html
+pip install -r requirements.txt
+```
 
-# 2. Configure AWS CLI
-aws configure
-# Enter your AWS Access Key, Secret Key, and Region (ap-south-1)
+### 3. Run (development)
 
-# 3. Deploy infrastructure
-cd infrastructure
-chmod +x deploy.sh
-./deploy.sh
+```bash
+# Option A: Both servers at once
+chmod +x scripts/run.sh
+./scripts/run.sh
+
+# Option B: Separately
+uvicorn main:app --reload --port 8000   # Terminal 1
+streamlit run app.py                     # Terminal 2
+```
+
+### 4. Open in browser
+
+- **App**: http://localhost:8501
+- **API Docs**: http://localhost:8000/docs
+- **Health Check**: http://localhost:8000/api/health
+
+### Docker
+
+```bash
+docker-compose up --build
+# App: http://localhost:8501
+# API: http://localhost:8000
 ```
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
 ```
-Sampark/
-├── frontend/                    # React Vite Application
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── StartScreen.jsx      # Voice input screen
-│   │   │   ├── CategoryScreen.jsx   # Category selection
-│   │   │   └── ResultScreen.jsx     # Scheme details
-│   │   ├── services/
-│   │   │   └── api.js               # API client
-│   │   ├── App.jsx                  # Main app component
-│   │   ├── main.jsx                 # Entry point
-│   │   └── index.css                # Styles
-│   ├── package.json
-│   └── vite.config.js
+SAMPARK/
+├── app.py                    # Streamlit frontend (v2)
+├── main.py                   # FastAPI backend
+├── requirements.txt          # Python dependencies
+├── Dockerfile                # Container image
+├── docker-compose.yml        # Multi-service orchestration
+├── .env.example              # Environment variable template
+├── pytest.ini                # Test configuration
 │
-├── backend/
-│   ├── lambda/
-│   │   ├── index.js                 # Main Lambda handler
-│   │   └── package.json
-│   └── dynamodb/
-│       ├── seed-data.json           # Initial scheme data
-│       └── create-table.sh          # Table creation script
+├── server/                   # FastAPI backend modules
+│   ├── config.py             # Pydantic settings management
+│   ├── database.py           # SQLAlchemy models + async DB
+│   ├── ai_engine.py          # Multi-provider AI + RAG + vision
+│   ├── voice_handler.py      # Bhashini/Whisper STT + TTS
+│   ├── screen_analyzer.py    # WebSocket screen guidance
+│   └── auth.py               # JWT authentication
 │
-├── infrastructure/
-│   ├── template.yaml                # SAM/CloudFormation template
-│   └── deploy.sh                    # Deployment script
+├── utils/                    # Streamlit-specific utilities
+│   ├── i18n.py               # Hindi/English translations
+│   ├── voice.py              # Local STT/TTS (fallback)
+│   └── ai_engine.py          # Local AI (fallback)
 │
-└── README.md
+├── st_components/            # Streamlit custom JS components
+│   ├── styles.py             # Custom CSS injection
+│   ├── audio_recorder/       # Big mic button component
+│   │   └── index.html
+│   └── screen_share/         # getDisplayMedia component
+│       └── index.html
+│
+├── data/
+│   ├── schemes.json          # Scheme corpus (MP + national)
+│   └── faiss_index/          # FAISS vector store (auto-built)
+│
+├── static/
+│   ├── manifest.json         # PWA manifest
+│   └── sw.js                 # Service worker
+│
+├── tests/                    # pytest test suite
+│   ├── test_ai.py
+│   └── test_api.py
+│
+├── scripts/
+│   └── run.sh                # Dev startup script
+│
+├── frontend/                 # React app (legacy/alternative)
+├── backend/                  # AWS Lambda backend (legacy)
+└── infrastructure/           # AWS SAM deployment
 ```
 
 ---
 
-## 🗃️ DynamoDB Schema
-
-**Table: SamparkSchemes**
-
-```json
-{
-  "scheme_id": "PM_KISAN",
-  "category": "farmer",
-  "name": "PM Kisan Samman Nidhi",
-  "eligibility": "Chhote aur seemant kisan",
-  "benefit": "₹6000 har saal",
-  "documents": ["Aadhaar", "Bank Account", "Land Record"],
-  "steps": [
-    "PM Kisan website par jao",
-    "Registration karo",
-    "Documents upload karo"
-  ],
-  "helpline": "155261"
-}
-```
-
-### Available Schemes
-
-| Category | Scheme | Benefit |
-|----------|--------|---------|
-| 👨‍🌾 Farmer | PM Kisan | ₹6000/year |
-| 👨‍🌾 Farmer | Kisan Credit Card | 3L loan @ 4% |
-| 🎓 Student | PM Vidyalakshmi | Education Loan |
-| 🎓 Student | National Scholarship | ₹5K-20K |
-| 👩 Woman | PM Ujjwala | Free LPG |
-| 👩 Woman | Sukanya Samriddhi | 8% savings |
-
----
-
-## 🤖 Bedrock AI Prompt
-
-```
-Tum Sampark AI ho.
-
-Rules:
-- Hinglish me jawab do
-- Bahut simple shabd use karo
-- Gaon ke aadmi jaise samjhao
-- Legal ya sarkari bhaasha mat use karo
-- Steps hamesha numbered me likho
-- Short sentences
-
-Goal:
-User ko scheme, eligibility, documents aur steps samjhao.
-```
-
----
-
-## 🔌 API Endpoints
+## API Endpoints
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/query` | Process voice transcript |
-| GET | `/scheme/{category}` | Get scheme by category |
-| POST | `/transcribe` | Transcribe audio |
-| GET | `/audio/{schemeId}` | Get audio URL |
-| GET | `/health` | Health check |
+| `POST` | `/api/voice/transcribe` | Audio file → text (Bhashini/Whisper) |
+| `POST` | `/api/voice/synthesize` | Text → audio MP3 (Bhashini/gTTS) |
+| `POST` | `/api/chat/query` | Text query → AI response + TTS |
+| `POST` | `/api/screen/analyze` | Screenshot → guidance + TTS |
+| `GET` | `/api/schemes/search` | Semantic search over schemes |
+| `WS` | `/ws/screen/{session_id}` | Live screen guidance |
+| `POST` | `/api/auth/register` | Register user (optional) |
+| `POST` | `/api/auth/login` | Login → JWT (optional) |
+| `GET` | `/api/health` | Health check |
 
-### Example Request
+---
+
+## Schemes Database
+
+| Category | Scheme | State |
+|----------|--------|-------|
+| Farmer | PM Kisan Samman Nidhi | All India |
+| Farmer | Kisan Credit Card | All India |
+| Farmer | Mukhyamantri Kisan Kalyan Yojana | Madhya Pradesh |
+| Woman | Ladli Bahna Yojana | Madhya Pradesh |
+| Woman | PM Ujjwala Yojana | All India |
+| Student | PM Vidyalakshmi Yojana | All India |
+| Student | Mukhyamantri Medhavi Vidyarthi Yojana | Madhya Pradesh |
+| Grievance | CPGRAMS (PG Portal) | All India |
+| Grievance | CM Helpline 181 | Madhya Pradesh |
+
+---
+
+## Environment Variables
+
+See `.env.example` for all variables. Key ones:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `AI_PROVIDER` | Yes | `openai`, `xai`, or `google` |
+| `OPENAI_API_KEY` | If provider=openai | GPT-4o for text + vision |
+| `XAI_API_KEY` | If provider=xai | Grok for text + vision |
+| `BHASHINI_API_KEY` | Optional | Indian govt STT/TTS (22+ languages) |
+| `DATABASE_URL` | Optional | Default: SQLite `./sampark.db` |
+
+---
+
+## Privacy & Compliance
+
+- **DPDP Act (India)**: No personal data stored without consent
+- **Screen sharing**: Explicit user consent required; auto-timeout at 5 min
+- **Auth**: Optional; anonymous usage supported
+- **Logging**: Anonymized query logs only; no audio stored
+- **Disclaimer**: All responses include "This is for guidance only"
+
+---
+
+## Testing
 
 ```bash
-curl -X POST https://your-api.execute-api.ap-south-1.amazonaws.com/prod/query \
-  -H "Content-Type: application/json" \
-  -d '{"transcript": "kisan yojana ke baare mein batao"}'
-```
-
-### Example Response
-
-```json
-{
-  "category": "farmer",
-  "scheme": {
-    "scheme_id": "PM_KISAN",
-    "name": "PM Kisan Samman Nidhi",
-    "benefit": "₹6000 har saal",
-    "eligibility": "Chhote aur seemant kisan",
-    "documents": ["Aadhaar Card", "Bank Account"],
-    "steps": ["Website par jao", "Register karo", "Submit karo"]
-  },
-  "audioUrl": "https://s3.../audio/PM_KISAN_123.mp3"
-}
+pytest                    # Run all tests
+pytest tests/test_ai.py   # AI engine tests only
+pytest tests/test_api.py  # API endpoint tests only
 ```
 
 ---
 
-## 🧪 Testing
+## Roadmap
 
-### Test Voice Recognition (Browser)
-1. Open app in Chrome/Safari
-2. Click mic button
-3. Say "Kisan yojana batao"
-4. Should navigate to farmer scheme
-
-### Test API (Terminal)
-```bash
-# Health check
-curl https://your-api-url/prod/health
-
-# Query endpoint
-curl -X POST https://your-api-url/prod/query \
-  -H "Content-Type: application/json" \
-  -d '{"transcript": "mahila ke liye kya yojana hai"}'
-```
+| Phase | Feature | Status |
+|-------|---------|--------|
+| v1.0 | Voice-first Streamlit MVP | Done |
+| v2.0 | FastAPI backend + RAG + Screen guide + Docker | Done |
+| v2.1 | Bhashini integration for 22+ languages | Ready |
+| v2.2 | Redis caching for AI responses | Planned |
+| v2.3 | Twilio SMS/WhatsApp notifications | Planned |
+| v3.0 | React Native mobile app | Planned |
+| v3.1 | Playwright headless browser for auto form-fill | Planned |
+| v3.2 | ML-based intent detection (fine-tuned model) | Planned |
+| v3.3 | Direct govt API integrations (PM-KISAN status check) | Planned |
 
 ---
 
-## 🛠️ Environment Variables
+## Contributing
 
-### Frontend (.env)
-```
-VITE_API_URL=https://your-api.execute-api.ap-south-1.amazonaws.com/prod
-```
-
-### Lambda
-```
-SCHEMES_TABLE=SamparkSchemes
-AUDIO_BUCKET=sampark-audio-bucket
-```
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/my-feature`
+3. Commit changes: `git commit -m "feat: Add my feature"`
+4. Push: `git push origin feature/my-feature`
+5. Open a Pull Request
 
 ---
 
-## 📊 Cost Estimation (AWS)
+## License
 
-For hackathon/demo usage (low traffic):
-
-| Service | Free Tier | Estimated Cost |
-|---------|-----------|----------------|
-| Lambda | 1M requests/month | Free |
-| API Gateway | 1M calls/month | Free |
-| DynamoDB | 25 GB storage | Free |
-| S3 | 5 GB storage | ~$0.12/month |
-| Polly | 5M characters/month | Free for 12 months |
-| Transcribe | 60 min/month | Free for 12 months |
-| Bedrock | Pay per token | ~$0.50 for demo |
-
-**Total: ~$1-2/month for demo**
+MIT License — Free for educational and non-commercial use.
 
 ---
 
-## 🔒 Security
-
-- API Gateway with CORS configured
-- S3 buckets with appropriate policies
-- Lambda with minimal IAM permissions
-- No user data stored (stateless)
-- Audio files with expiring URLs
-
----
-
-## 📈 Future Enhancements
-
-1. **More Schemes**: Add 50+ central and state schemes
-2. **Regional Languages**: Tamil, Telugu, Bengali, etc.
-3. **WhatsApp Bot**: Integration via Twilio
-4. **Offline Mode**: PWA with cached responses
-5. **CSC Integration**: Direct application submission
-6. **Analytics**: Track most searched schemes
-
----
-
-## 👥 Team
-
-**Sampark AI** - AI for Bharat Hackathon 2026
-
----
-
-## 📜 License
-
-MIT License - Free for educational and non-commercial use.
-
----
-
-## 🙏 Acknowledgments
-
-- AI for Bharat initiative
-- AWS for cloud infrastructure
-- Government of India for open scheme data
-
----
-
-**Made with ❤️ for Bharat**
+**Made with care for Bharat** 🇮🇳

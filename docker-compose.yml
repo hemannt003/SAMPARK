@@ -1,0 +1,38 @@
+version: "3.9"
+
+services:
+  # ── FastAPI Backend ─────────────────────────────────────────
+  backend:
+    build: .
+    container_name: sampark-backend
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    env_file: .env
+    volumes:
+      - .:/app
+      - sampark-data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Streamlit Frontend ──────────────────────────────────────
+  frontend:
+    build: .
+    container_name: sampark-frontend
+    command: streamlit run app.py --server.port 8501 --server.address 0.0.0.0
+    ports:
+      - "8501:8501"
+    env_file: .env
+    environment:
+      - BACKEND_URL=http://backend:8000
+    volumes:
+      - .:/app
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  sampark-data:

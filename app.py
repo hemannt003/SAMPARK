@@ -1,30 +1,38 @@
 """
-Sampark AI — Voice-first Government Scheme Assistant
-Main Streamlit application.
+Sampark AI — Streamlit Frontend (v2)
 
-Run:  streamlit run app.py
+Upgraded to call FastAPI backend for AI, voice, and screen analysis.
+Falls back to direct module imports when backend is unavailable.
+
+Run:
+    streamlit run app.py
 """
 
+from __future__ import annotations
+
+import base64
 import json
 import os
-import base64
-import time
+import uuid
 from pathlib import Path
 
+import httpx
 import streamlit as st
 import streamlit.components.v1 as components
 from dotenv import load_dotenv
 
-from utils.i18n import t
-from utils.ai_engine import get_ai_response, analyze_screen_capture, check_if_guided_flow
-from utils.voice import transcribe_audio, text_to_speech
-from st_components.styles import inject_css
-
 load_dotenv()
 
-# ─────────────────────────────────────────────────────────────────
-# Page configuration
-# ─────────────────────────────────────────────────────────────────
+# ── Local imports (used as fallback when FastAPI is down) ───────
+from utils.i18n import t as _t
+from st_components.styles import inject_css
+
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+
+# ═════════════════════════════════════════════════════════════════
+#  Page Config
+# ═════════════════════════════════════════════════════════════════
+
 st.set_page_config(
     page_title="Sampark AI | समpark AI",
     page_icon="🎤",
@@ -32,12 +40,22 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# Inject custom CSS
 inject_css()
 
-# ─────────────────────────────────────────────────────────────────
-# Declare custom Streamlit components
-# ─────────────────────────────────────────────────────────────────
+# PWA registration script
+st.markdown(
+    """<script>
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/static/sw.js').catch(() => {});
+    }
+    </script>""",
+    unsafe_allow_html=True,
+)
+
+# ═════════════════════════════════════════════════════════════════
+#  Custom components
+# ═════════════════════════════════════════════════════════════════
+
 COMP_DIR = Path(__file__).parent / "st_components"
 
 _audio_recorder = components.declare_component(
@@ -51,41 +69,20 @@ _screen_share = components.declare_component(
 )
 
 
-def audio_recorder_component(lang: str = "hi", key: str = "mic"):
-    """Big mic button that returns base64 audio when recording stops."""
-    return _audio_recorder(lang=lang, key=key, default=None)
+# ═════════════════════════════════════════════════════════════════
+#  Session State
+# ═════════════════════════════════════════════════════════════════
 
-
-def screen_share_component(
-    lang: str = "hi",
-    auto_capture: bool = True,
-    capture_interval: int = 8,
-    command: str = "",
-    key: str = "screen",
-):
-    """Screen sharing component. Returns JSON events (started/stopped/frame)."""
-    return _screen_share(
-        lang=lang,
-        auto_capture=auto_capture,
-        capture_interval=capture_interval,
-        command=command,
-        key=key,
-        default=None,
-    )
-
-
-# ─────────────────────────────────────────────────────────────────
-# Session state initialisation
-# ─────────────────────────────────────────────────────────────────
 _DEFAULTS = {
     "lang": "hi",
-    "messages": [],        # [{role, content, audio_bytes}]
+    "messages": [],
+    "session_id": str(uuid.uuid4())[:12],
     "screen_sharing": False,
-    "guide_context": "",   # What user is trying to do
+    "guide_context": "",
     "awaiting_guide": False,
     "last_guidance": "",
-    "guidance_count": 0,
-    "audio_key": 0,        # Incremented to force re-render of audio component
+    "audio_key": 0,
+    "backend_alive": True,
 }
 
 for k, v in _DEFAULTS.items():
@@ -95,16 +92,141 @@ for k, v in _DEFAULTS.items():
 lang = st.session_state.lang
 
 
-# ─────────────────────────────────────────────────────────────────
-# Sidebar — settings
-# ─────────────────────────────────────────────────────────────────
-with st.sidebar:
-    st.markdown("### " + t("settings", lang))
+# ═════════════════════════════════════════════════════════════════
+#  Backend communication helpers
+# ═════════════════════════════════════════════════════════════════
 
-    # Language toggle
+def _api(method: str, path: str, **kwargs) -> dict | None:
+    """Call FastAPI backend. Returns JSON dict or None on failure."""
+    try:
+        with httpx.Client(base_url=BACKEND_URL, timeout=60.0) as client:
+            resp = getattr(client, method)(path, **kwargs)
+            resp.raise_for_status()
+            st.session_state.backend_alive = True
+            return resp.json()
+    except Exception:
+        st.session_state.backend_alive = False
+        return None
+
+
+def api_chat(message: str, lang: str, history: list) -> dict:
+    """Send chat query to FastAPI, fallback to local processing."""
+    result = _api("post", "/api/chat/query", json={
+        "message": message,
+        "lang": lang,
+        "session_id": st.session_state.session_id,
+        "history": history[-10:],
+    })
+    if result:
+        return result
+
+    # Fallback: use local AI engine directly
+    from server.ai_engine import process_query, is_guided_flow
+    from utils.voice import text_to_speech
+
+    reply = process_query(message, history[-10:], lang)
+    audio = text_to_speech(reply, lang)
+    audio_b64 = base64.b64encode(audio).decode() if audio else ""
+    return {
+        "reply": reply,
+        "audio_b64": audio_b64,
+        "is_guided": is_guided_flow(reply),
+        "session_id": st.session_state.session_id,
+    }
+
+
+def api_transcribe(audio_bytes: bytes, lang: str) -> str:
+    """Transcribe audio via FastAPI, fallback to local Whisper."""
+    import tempfile
+
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp:
+            tmp.write(audio_bytes)
+            tmp_path = tmp.name
+
+        with httpx.Client(base_url=BACKEND_URL, timeout=30.0) as client:
+            with open(tmp_path, "rb") as f:
+                resp = client.post(
+                    "/api/voice/transcribe",
+                    files={"audio": ("audio.webm", f, "audio/webm")},
+                    data={"lang": lang},
+                )
+            resp.raise_for_status()
+            os.unlink(tmp_path)
+            return resp.json().get("transcript", "")
+
+    except Exception:
+        from utils.voice import transcribe_audio
+        return transcribe_audio(audio_bytes, lang)
+
+
+def api_synthesize(text: str, lang: str) -> bytes:
+    """TTS via FastAPI, fallback to local gTTS."""
+    result = _api("post", "/api/voice/synthesize", json={"text": text, "lang": lang})
+    if result and result.get("audio_b64"):
+        return base64.b64decode(result["audio_b64"])
+
+    from utils.voice import text_to_speech
+    return text_to_speech(text, lang)
+
+
+def api_screen_analyze(image_b64: str, context: str, lang: str) -> dict:
+    """Analyse screenshot via FastAPI, fallback to local vision."""
+    result = _api("post", "/api/screen/analyze", json={
+        "image_b64": image_b64,
+        "context": context,
+        "lang": lang,
+    })
+    if result:
+        return result
+
+    from server.ai_engine import analyze_screen
+    guidance = analyze_screen(image_b64, context, lang)
+    audio = api_synthesize(guidance, lang)
+    return {
+        "guidance": guidance,
+        "audio_b64": base64.b64encode(audio).decode() if audio else "",
+    }
+
+
+# ═════════════════════════════════════════════════════════════════
+#  Helper: add message
+# ═════════════════════════════════════════════════════════════════
+
+def add_msg(role: str, content: str, audio_b64: str = ""):
+    st.session_state.messages.append({
+        "role": role,
+        "content": content,
+        "audio_b64": audio_b64,
+    })
+
+
+def process_user_input(text: str):
+    """Send user text to AI and add response to chat."""
+    add_msg("user", text)
+
+    history = [{"role": m["role"], "content": m["content"]} for m in st.session_state.messages[:-1]]
+
+    with st.spinner(_t("processing", lang)):
+        result = api_chat(text, lang, history)
+
+    add_msg("assistant", result["reply"], result.get("audio_b64", ""))
+
+    if result.get("is_guided"):
+        st.session_state.awaiting_guide = True
+        st.session_state.guide_context = text
+
+
+# ═════════════════════════════════════════════════════════════════
+#  Sidebar
+# ═════════════════════════════════════════════════════════════════
+
+with st.sidebar:
+    st.markdown("### " + _t("settings", lang))
+
     lang_choice = st.radio(
-        t("language", lang),
-        options=["hi", "en"],
+        _t("language", lang),
+        ["hi", "en"],
         format_func=lambda x: "हिन्दी" if x == "hi" else "English",
         index=0 if lang == "hi" else 1,
         horizontal=True,
@@ -116,32 +238,11 @@ with st.sidebar:
 
     st.divider()
 
-    # AI provider
-    provider_map = {"openai": "OpenAI (GPT-4o)", "xai": "xAI (Grok)", "google": "Google (Gemini)"}
-    provider = st.selectbox(
-        t("provider_label", lang),
-        options=list(provider_map.keys()),
-        format_func=lambda x: provider_map[x],
-        index=0,
-    )
-    os.environ["AI_PROVIDER"] = provider
+    # Backend status
+    status_icon = "🟢" if st.session_state.backend_alive else "🔴"
+    st.caption(f"{status_icon} Backend: {BACKEND_URL}")
 
-    # API key
-    env_key_map = {"openai": "OPENAI_API_KEY", "xai": "XAI_API_KEY", "google": "GOOGLE_API_KEY"}
-    existing_key = os.getenv(env_key_map[provider], "")
-    api_key = st.text_input(
-        t("api_key_label", lang),
-        value=existing_key,
-        type="password",
-        help="Paste your API key here",
-    )
-    if api_key:
-        os.environ[env_key_map[provider]] = api_key
-
-    st.divider()
-
-    # Clear chat
-    if st.button(t("clear_chat", lang), use_container_width=True):
+    if st.button(_t("clear_chat", lang), use_container_width=True):
         st.session_state.messages = []
         st.session_state.screen_sharing = False
         st.session_state.awaiting_guide = False
@@ -150,238 +251,190 @@ with st.sidebar:
         st.rerun()
 
     st.divider()
-    st.caption(t("about", lang))
+    st.caption(_t("about", lang))
 
 
-# ─────────────────────────────────────────────────────────────────
-# Header
-# ─────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════
+#  Header
+# ═════════════════════════════════════════════════════════════════
+
 st.markdown(
     f"""<div class="app-header">
-        <h1>{t('app_title', lang)}</h1>
-        <p>{t('tagline', lang)}</p>
+        <h1>{_t('app_title', lang)}</h1>
+        <p>{_t('tagline', lang)}</p>
     </div>""",
     unsafe_allow_html=True,
 )
 
 
-# ─────────────────────────────────────────────────────────────────
-# Helper: add message to chat
-# ─────────────────────────────────────────────────────────────────
-def add_message(role: str, content: str, audio_bytes: bytes = b""):
-    st.session_state.messages.append({
-        "role": role,
-        "content": content,
-        "audio_bytes": audio_bytes,
-    })
+# ═════════════════════════════════════════════════════════════════
+#  Welcome message
+# ═════════════════════════════════════════════════════════════════
 
-
-def process_user_input(user_text: str):
-    """Send user text through AI → add response → optionally offer screen guide."""
-    add_message("user", user_text)
-
-    with st.spinner(t("processing", lang)):
-        # Build history for context
-        history = [
-            {"role": m["role"], "content": m["content"]}
-            for m in st.session_state.messages[:-1]  # Exclude the just-added user msg
-        ]
-
-        ai_reply = get_ai_response(user_text, history, lang)
-
-    # Generate TTS for the reply
-    tts_bytes = text_to_speech(ai_reply, lang)
-    add_message("assistant", ai_reply, tts_bytes)
-
-    # Check if this response warrants screen-guided assistance
-    if check_if_guided_flow(ai_reply):
-        st.session_state.awaiting_guide = True
-        st.session_state.guide_context = user_text
-
-
-# ─────────────────────────────────────────────────────────────────
-# Welcome message (first load)
-# ─────────────────────────────────────────────────────────────────
 if not st.session_state.messages:
-    welcome = t("welcome_msg", lang)
-    welcome_audio = text_to_speech(welcome.replace("•", "").replace("\n", " "), lang)
-    add_message("assistant", welcome, welcome_audio)
+    welcome = _t("welcome_msg", lang)
+    welcome_audio = api_synthesize(welcome.replace("•", "").replace("\n", " "), lang)
+    audio_b64 = base64.b64encode(welcome_audio).decode() if welcome_audio else ""
+    add_msg("assistant", welcome, audio_b64)
 
 
-# ─────────────────────────────────────────────────────────────────
-# Chat history display
-# ─────────────────────────────────────────────────────────────────
-for idx, msg in enumerate(st.session_state.messages):
+# ═════════════════════════════════════════════════════════════════
+#  Chat history
+# ═════════════════════════════════════════════════════════════════
+
+for msg in st.session_state.messages:
     avatar = "🧑‍🌾" if msg["role"] == "user" else "🤖"
     with st.chat_message(msg["role"], avatar=avatar):
-        st.markdown(
-            f'<div class="chat-msg">{msg["content"]}</div>',
-            unsafe_allow_html=True,
-        )
-        if msg.get("audio_bytes"):
-            st.audio(msg["audio_bytes"], format="audio/mp3")
+        st.markdown(f'<div class="chat-msg">{msg["content"]}</div>', unsafe_allow_html=True)
+        if msg.get("audio_b64"):
+            try:
+                st.audio(base64.b64decode(msg["audio_b64"]), format="audio/mp3")
+            except Exception:
+                pass
 
 
-# ─────────────────────────────────────────────────────────────────
-# Screen Guide Offer (after multi-step AI response)
-# ─────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════
+#  Screen Guide Offer
+# ═════════════════════════════════════════════════════════════════
+
 if st.session_state.awaiting_guide and not st.session_state.screen_sharing:
     st.markdown(
-        f"""<div class="guide-offer-card">
-            <h3>{t('guide_offer', lang)}</h3>
-        </div>""",
+        f'<div class="guide-offer-card"><h3>{_t("guide_offer", lang)}</h3></div>',
         unsafe_allow_html=True,
     )
-
-    col_yes, col_no = st.columns(2)
-    with col_yes:
-        if st.button(t("guide_yes", lang), key="guide_yes", use_container_width=True):
+    col_y, col_n = st.columns(2)
+    with col_y:
+        if st.button(_t("guide_yes", lang), key="gy", use_container_width=True):
             st.session_state.screen_sharing = True
             st.session_state.awaiting_guide = False
             st.rerun()
-    with col_no:
-        if st.button(t("guide_no", lang), key="guide_no", use_container_width=True):
+    with col_n:
+        if st.button(_t("guide_no", lang), key="gn", use_container_width=True):
             st.session_state.awaiting_guide = False
             st.rerun()
 
 
-# ─────────────────────────────────────────────────────────────────
-# Screen Sharing — Active
-# ─────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════
+#  Screen Sharing Active
+# ═════════════════════════════════════════════════════════════════
+
 if st.session_state.screen_sharing:
     st.markdown(
-        f'<div class="guide-active-banner">{t("guide_active", lang)}</div>',
+        f'<div class="guide-active-banner">{_t("guide_active", lang)}</div>',
         unsafe_allow_html=True,
     )
 
-    # Render the screen share component
-    screen_data = screen_share_component(
+    screen_data = _screen_share(
         lang=lang,
         auto_capture=True,
         capture_interval=8,
-        key="screen_share_main",
+        key="ss_main",
+        default=None,
     )
 
-    # Process events from the component
     if screen_data:
         try:
             event = json.loads(screen_data) if isinstance(screen_data, str) else screen_data
         except (json.JSONDecodeError, TypeError):
             event = {}
 
-        event_type = event.get("event", "")
+        etype = event.get("event", "")
 
-        if event_type == "stopped":
+        if etype == "stopped":
             st.session_state.screen_sharing = False
             st.session_state.last_guidance = ""
-            add_message("assistant", t("guide_stopped", lang))
+            add_msg("assistant", _t("guide_stopped", lang))
             st.rerun()
 
-        elif event_type == "frame":
+        elif etype == "frame":
             image_b64 = event.get("image", "")
             if image_b64:
-                with st.spinner(t("guide_analyzing", lang)):
-                    guidance = analyze_screen_capture(
-                        image_b64,
-                        st.session_state.guide_context,
-                        lang,
+                with st.spinner(_t("guide_analyzing", lang)):
+                    result = api_screen_analyze(
+                        image_b64, st.session_state.guide_context, lang
                     )
 
+                guidance = result.get("guidance", "")
                 if guidance and guidance != st.session_state.last_guidance:
                     st.session_state.last_guidance = guidance
-                    st.session_state.guidance_count += 1
-
-                    # Show guidance
                     st.markdown(
                         f'<div class="guidance-text">{guidance}</div>',
                         unsafe_allow_html=True,
                     )
+                    if result.get("audio_b64"):
+                        st.audio(
+                            base64.b64decode(result["audio_b64"]),
+                            format="audio/mp3",
+                            autoplay=True,
+                        )
+                    add_msg("assistant", f"🖥️ {guidance}", result.get("audio_b64", ""))
 
-                    # Speak the guidance
-                    guidance_audio = text_to_speech(guidance, lang)
-                    if guidance_audio:
-                        st.audio(guidance_audio, format="audio/mp3", autoplay=True)
-
-                    # Save to chat history
-                    add_message("assistant", f"🖥️ {guidance}", guidance_audio)
-
-        elif event_type == "error":
-            st.warning(t("guide_permission", lang))
+        elif etype == "error":
+            st.warning(_t("guide_permission", lang))
             st.session_state.screen_sharing = False
 
-    # Stop sharing button (always visible during sharing)
-    if st.button(t("guide_stop", lang), key="stop_sharing_btn"):
+    if st.button(_t("guide_stop", lang), key="stop_ss"):
         st.session_state.screen_sharing = False
         st.session_state.last_guidance = ""
-        add_message("assistant", t("guide_stopped", lang))
+        add_msg("assistant", _t("guide_stopped", lang))
         st.rerun()
 
-    # Voice commands hint
-    st.caption(t("guide_voice_cmds", lang))
+    st.caption(_t("guide_voice_cmds", lang))
 
 
-# ─────────────────────────────────────────────────────────────────
-# Voice input — Big mic button
-# ─────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════
+#  Voice Input
+# ═════════════════════════════════════════════════════════════════
+
 st.markdown("---")
-
 st.markdown(
-    f'<p style="text-align:center;font-size:1.1rem;color:#666;margin-bottom:4px;">'
-    f'{t("talk", lang)}</p>',
+    f'<p style="text-align:center;font-size:1.15rem;color:#666;">{_t("talk", lang)}</p>',
     unsafe_allow_html=True,
 )
 
-audio_b64 = audio_recorder_component(
-    lang=lang,
-    key=f"mic_{st.session_state.audio_key}",
-)
+audio_b64 = _audio_recorder(lang=lang, key=f"mic_{st.session_state.audio_key}", default=None)
 
 if audio_b64 and isinstance(audio_b64, str) and len(audio_b64) > 100:
-    # Decode audio
     audio_bytes = base64.b64decode(audio_b64)
 
-    # Transcribe
-    with st.spinner(t("thinking", lang)):
-        transcript = transcribe_audio(audio_bytes, lang)
+    with st.spinner(_t("thinking", lang)):
+        transcript = api_transcribe(audio_bytes, lang)
 
     if transcript:
         st.markdown(
-            f'<p style="text-align:center;font-size:1.05rem;color:#333;">'
-            f'{t("you_said", lang)} <strong>"{transcript}"</strong></p>',
+            f'<p style="text-align:center;font-size:1.05rem;">'
+            f'{_t("you_said", lang)} <strong>"{transcript}"</strong></p>',
             unsafe_allow_html=True,
         )
 
-        # Check for screen guide voice commands
         lower = transcript.lower()
-        guide_next = any(w in lower for w in ["अगला", "next", "आगे"])
-        guide_repeat = any(w in lower for w in ["दोबारा", "repeat", "again", "फिर से"])
+        is_repeat = any(w in lower for w in ["दोबारा", "repeat", "again", "फिर से"])
 
-        if st.session_state.screen_sharing and guide_repeat and st.session_state.last_guidance:
-            # Repeat last guidance
-            repeat_audio = text_to_speech(st.session_state.last_guidance, lang)
-            st.audio(repeat_audio, format="audio/mp3", autoplay=True)
+        if st.session_state.screen_sharing and is_repeat and st.session_state.last_guidance:
+            audio = api_synthesize(st.session_state.last_guidance, lang)
+            st.audio(audio, format="audio/mp3", autoplay=True)
         else:
-            # Normal query processing
             process_user_input(transcript)
 
-        # Increment key to reset the recorder component
         st.session_state.audio_key += 1
         st.rerun()
 
 
-# ─────────────────────────────────────────────────────────────────
-# Text input — fallback for typing
-# ─────────────────────────────────────────────────────────────────
-user_text = st.chat_input(t("type_here", lang))
+# ═════════════════════════════════════════════════════════════════
+#  Text Input
+# ═════════════════════════════════════════════════════════════════
+
+user_text = st.chat_input(_t("type_here", lang))
 if user_text:
     process_user_input(user_text)
     st.rerun()
 
 
-# ─────────────────────────────────────────────────────────────────
-# Footer
-# ─────────────────────────────────────────────────────────────────
+# ═════════════════════════════════════════════════════════════════
+#  Footer
+# ═════════════════════════════════════════════════════════════════
+
 st.markdown(
-    f'<div class="app-footer">{t("powered_by", lang)}</div>',
+    f'<div class="app-footer">{_t("powered_by", lang)}</div>',
     unsafe_allow_html=True,
 )

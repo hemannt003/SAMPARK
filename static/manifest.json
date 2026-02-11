@@ -1,0 +1,19 @@
+{
+  "name": "Sampark AI — Government Scheme Assistant",
+  "short_name": "Sampark AI",
+  "description": "Voice-first assistant for government schemes, complaints, and guided applications",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FFF8F0",
+  "theme_color": "#FF6B35",
+  "lang": "hi",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎤</text></svg>",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ],
+  "categories": ["government", "education", "utilities"]
+}

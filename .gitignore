@@ -37,3 +37,17 @@ __pycache__/
 
 # AWS
 samconfig.toml
+
+# Database
+*.db
+*.sqlite
+
+# FAISS index (auto-built)
+data/faiss_index/*.faiss
+data/faiss_index/*.pkl
+
+# Pytest cache
+.pytest_cache/
+
+# Test DB
+test_sampark.db
